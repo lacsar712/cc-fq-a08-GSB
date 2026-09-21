@@ -86,6 +86,8 @@ const metricCards = computed(() => {
     { label: 'reads', value: m.reads ?? m.summary?.reads ?? '—' },
     { label: 'mean_quality', value: m.mean_quality ?? m.summary?.mean_quality ?? '—' },
     { label: 'n_rate', value: m.n_rate ?? m.summary?.n_rate ?? '—' },
+    { label: 'gc_rate', value: m.gc_rate ?? m.summary?.gc_rate ?? '—' },
+    { label: 'gc_count', value: m.gc_count ?? m.summary?.gc_count ?? '—' },
   ]
 })
 

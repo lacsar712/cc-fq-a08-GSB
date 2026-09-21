@@ -6,6 +6,7 @@ import pytest
 
 from app.pipeline.actors import (
     ActorError,
+    GcContentActor,
     NContentActor,
     ParseActor,
     PipelineContext,
@@ -58,12 +59,26 @@ async def test_parse_actor_ok_and_quality_mean():
 
 
 @pytest.mark.asyncio
+async def test_good_sample_produces_gc_rate():
+    ok, ctx, stages = await _run_chain(GOOD_FASTQ)
+    assert ok is True
+    assert stages["GcContentActor"]["status"] == "success"
+    # SEQ1 ACGTACGT → 4 GC；SEQ2 NNNNACGT → 2 GC；共 16 碱基
+    assert ctx.metrics["gc_count"] == 6
+    assert ctx.metrics["gc_rate"] == 0.375
+    # 汇总报告同样透出
+    assert ctx.metrics["report"]["gc_rate"] == 0.375
+    assert ctx.metrics["summary"]["gc_rate"] == 0.375
+
+
+@pytest.mark.asyncio
 async def test_broken_stops_pipeline():
     ok, ctx, stages = await _run_chain(BROKEN_FASTQ)
     assert ok is False
     assert stages["ParseActor"]["status"] == "failed"
     assert stages["QualityHistActor"]["status"] == "skipped"
     assert stages["NContentActor"]["status"] == "skipped"
+    assert stages["GcContentActor"]["status"] == "skipped"
     assert stages["ReportActor"]["status"] == "skipped"
     assert ctx.failed_actor == "ParseActor"
 

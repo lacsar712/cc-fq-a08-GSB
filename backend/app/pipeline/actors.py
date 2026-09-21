@@ -176,6 +176,32 @@ class NContentActor:
             await out_q.put(QueueMessage(ok=False, context=ctx, error=err))
 
 
+class GcContentActor:
+    name = "GcContentActor"
+
+    async def run(self, in_q: asyncio.Queue, out_q: asyncio.Queue) -> None:
+        msg: QueueMessage = await in_q.get()
+        if not msg.ok:
+            await out_q.put(msg)
+            return
+        ctx = msg.context
+        try:
+            gc_count = 0
+            total = 0
+            for r in ctx.reads:
+                total += len(r.sequence)
+                gc_count += sum(1 for c in r.sequence if c in "GCgc")
+            gc_rate = round(gc_count / total, 6) if total else 0.0
+            ctx.metrics["gc_count"] = gc_count
+            ctx.metrics["gc_rate"] = gc_rate
+            await out_q.put(QueueMessage(ok=True, context=ctx))
+        except Exception as exc:  # noqa: BLE001
+            err = f"GC 含量统计失败: {exc}"
+            ctx.error = err
+            ctx.failed_actor = self.name
+            await out_q.put(QueueMessage(ok=False, context=ctx, error=err))
+
+
 class ReportActor:
     name = "ReportActor"
 
@@ -191,6 +217,8 @@ class ReportActor:
                 "mean_quality": ctx.metrics.get("mean_quality"),
                 "n_rate": ctx.metrics.get("n_rate"),
                 "n_count": ctx.metrics.get("n_count"),
+                "gc_rate": ctx.metrics.get("gc_rate"),
+                "gc_count": ctx.metrics.get("gc_count"),
                 "total_bases": ctx.metrics.get("total_bases"),
                 "per_position_summary": {
                     "positions": len(ctx.metrics.get("per_position") or []),
@@ -210,6 +238,7 @@ class ReportActor:
                 "reads": report["reads"],
                 "mean_quality": report["mean_quality"],
                 "n_rate": report["n_rate"],
+                "gc_rate": report["gc_rate"],
                 "per_position": report["per_position_summary"],
             }
             await out_q.put(QueueMessage(ok=True, context=ctx))
@@ -220,4 +249,4 @@ class ReportActor:
             await out_q.put(QueueMessage(ok=False, context=ctx, error=err))
 
 
-ACTOR_CHAIN = [ParseActor, QualityHistActor, NContentActor, ReportActor]
+ACTOR_CHAIN = [ParseActor, QualityHistActor, NContentActor, GcContentActor, ReportActor]
