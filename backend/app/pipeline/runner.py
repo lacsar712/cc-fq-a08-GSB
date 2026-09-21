@@ -8,15 +8,7 @@ from datetime import datetime, timezone
 from sqlalchemy.orm import Session
 
 from app.models import Job, JobStage
-from app.pipeline.actors import (
-    ACTOR_CHAIN,
-    NContentActor,
-    ParseActor,
-    PipelineContext,
-    QualityHistActor,
-    QueueMessage,
-    ReportActor,
-)
+from app.pipeline.actors import ACTOR_CHAIN, PipelineContext, QueueMessage
 
 
 STAGE_NAMES = [cls.name for cls in ACTOR_CHAIN]
@@ -28,10 +20,10 @@ def _utcnow() -> datetime:
 
 async def _run_chain(fastq_text: str) -> tuple[bool, PipelineContext, dict[str, dict]]:
     """
-    Run Parse → QualityHist → NContent → Report via asyncio queues.
+    Run Parse → QualityHist → NContent → GcContent → Report via asyncio queues.
     Returns (success, context, stage_status keyed by actor name).
     """
-    actors = [ParseActor(), QualityHistActor(), NContentActor(), ReportActor()]
+    actors = [cls() for cls in ACTOR_CHAIN]
     queues: list[asyncio.Queue] = [asyncio.Queue() for _ in range(len(actors) + 1)]
     stage_status: dict[str, dict] = {
         a.name: {"status": "pending", "message": None} for a in actors

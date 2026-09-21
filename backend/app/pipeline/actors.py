@@ -176,6 +176,46 @@ class NContentActor:
             await out_q.put(QueueMessage(ok=False, context=ctx, error=err))
 
 
+class GcContentActor:
+    """GC 含量统计：gc_rate = (G+C) / (A+C+G+T)，N 等模糊碱基不计入分母。"""
+
+    name = "GcContentActor"
+
+    async def run(self, in_q: asyncio.Queue, out_q: asyncio.Queue) -> None:
+        msg: QueueMessage = await in_q.get()
+        if not msg.ok:
+            await out_q.put(msg)
+            return
+        ctx = msg.context
+        try:
+            gc_count, canonical_bases, gc_rate = self._compute(ctx.reads)
+            ctx.metrics["gc_count"] = gc_count
+            ctx.metrics["gc_at_bases"] = canonical_bases
+            ctx.metrics["gc_rate"] = gc_rate
+            await out_q.put(QueueMessage(ok=True, context=ctx))
+        except Exception as exc:  # noqa: BLE001
+            err = f"GC 含量统计失败: {exc}"
+            ctx.error = err
+            ctx.failed_actor = self.name
+            await out_q.put(QueueMessage(ok=False, context=ctx, error=err))
+
+    def _compute(self, reads: list[FastqRead]) -> tuple[int, int, float]:
+        if not reads:
+            raise ActorError("无读段可计算 GC 含量")
+        gc_count = 0
+        canonical_bases = 0
+        for r in reads:
+            for c in r.sequence:
+                u = c.upper()
+                if u in ("G", "C"):
+                    gc_count += 1
+                    canonical_bases += 1
+                elif u in ("A", "T"):
+                    canonical_bases += 1
+        gc_rate = round(gc_count / canonical_bases, 6) if canonical_bases else 0.0
+        return gc_count, canonical_bases, gc_rate
+
+
 class ReportActor:
     name = "ReportActor"
 
@@ -191,6 +231,9 @@ class ReportActor:
                 "mean_quality": ctx.metrics.get("mean_quality"),
                 "n_rate": ctx.metrics.get("n_rate"),
                 "n_count": ctx.metrics.get("n_count"),
+                "gc_rate": ctx.metrics.get("gc_rate"),
+                "gc_count": ctx.metrics.get("gc_count"),
+                "gc_at_bases": ctx.metrics.get("gc_at_bases"),
                 "total_bases": ctx.metrics.get("total_bases"),
                 "per_position_summary": {
                     "positions": len(ctx.metrics.get("per_position") or []),
@@ -210,6 +253,7 @@ class ReportActor:
                 "reads": report["reads"],
                 "mean_quality": report["mean_quality"],
                 "n_rate": report["n_rate"],
+                "gc_rate": report["gc_rate"],
                 "per_position": report["per_position_summary"],
             }
             await out_q.put(QueueMessage(ok=True, context=ctx))
@@ -220,4 +264,4 @@ class ReportActor:
             await out_q.put(QueueMessage(ok=False, context=ctx, error=err))
 
 
-ACTOR_CHAIN = [ParseActor, QualityHistActor, NContentActor, ReportActor]
+ACTOR_CHAIN = [ParseActor, QualityHistActor, NContentActor, GcContentActor, ReportActor]

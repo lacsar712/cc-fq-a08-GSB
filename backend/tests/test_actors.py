@@ -6,6 +6,8 @@ import pytest
 
 from app.pipeline.actors import (
     ActorError,
+    FastqRead,
+    GcContentActor,
     NContentActor,
     ParseActor,
     PipelineContext,
@@ -50,11 +52,38 @@ async def test_parse_actor_ok_and_quality_mean():
     ok, ctx, stages = await _run_chain(GOOD_FASTQ)
     assert ok is True
     assert stages["ParseActor"]["status"] == "success"
+    assert stages["GcContentActor"]["status"] == "success"
     assert stages["ReportActor"]["status"] == "success"
     assert ctx.metrics["reads"] == 2
     assert "mean_quality" in ctx.metrics
     assert ctx.metrics["mean_quality"] > 0
     assert ctx.metrics["n_rate"] == 0.25  # 4 N out of 16 bases
+    # SEQ1: 4 GC/8 bases; SEQ2: 2 GC over 4 canonical bases (4 N excluded)
+    assert ctx.metrics["gc_count"] == 6
+    assert ctx.metrics["gc_at_bases"] == 12
+    assert ctx.metrics["gc_rate"] == 0.5
+    assert ctx.metrics["report"]["gc_rate"] == 0.5
+    assert ctx.metrics["summary"]["gc_rate"] == 0.5
+
+
+@pytest.mark.asyncio
+async def test_gc_actor_counts_only_canonical_bases():
+    actor = GcContentActor()
+    in_q: asyncio.Queue = asyncio.Queue()
+    out_q: asyncio.Queue = asyncio.Queue()
+    ctx = PipelineContext(
+        fastq_text="",
+        reads=[
+            FastqRead(header="@x", sequence="ggccnnACGT", plus="+", quality="I" * 10),
+        ],
+    )
+    await in_q.put(QueueMessage(ok=True, context=ctx))
+    await actor.run(in_q, out_q)
+    result = await out_q.get()
+    assert result.ok is True
+    assert result.context.metrics["gc_count"] == 6  # g,g,c,c + C,G = 6
+    assert result.context.metrics["gc_at_bases"] == 8  # 10 bases minus 2 N
+    assert result.context.metrics["gc_rate"] == 0.75
 
 
 @pytest.mark.asyncio
@@ -64,6 +93,7 @@ async def test_broken_stops_pipeline():
     assert stages["ParseActor"]["status"] == "failed"
     assert stages["QualityHistActor"]["status"] == "skipped"
     assert stages["NContentActor"]["status"] == "skipped"
+    assert stages["GcContentActor"]["status"] == "skipped"
     assert stages["ReportActor"]["status"] == "skipped"
     assert ctx.failed_actor == "ParseActor"
 

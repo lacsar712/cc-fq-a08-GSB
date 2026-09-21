@@ -35,6 +35,7 @@
           <span v-if="props.row.metrics">
             Q={{ props.row.metrics.mean_quality ?? '—' }}
             · N={{ props.row.metrics.n_rate ?? '—' }}
+            · GC={{ props.row.metrics.gc_rate ?? '—' }}
             · reads={{ props.row.metrics.reads ?? '—' }}
           </span>
           <span v-else class="text-grey-6">—</span>
